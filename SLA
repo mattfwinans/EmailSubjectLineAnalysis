@@ -1,0 +1,94 @@
+import pandas as pd
+import pandas as pd
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.model_selection import train_test_split
+from sklearn import metrics
+from sklearn.feature_extraction.text import TfidfVectorizer
+import nltk
+from nltk.corpus import stopwords
+from sklearn.svm import LinearSVC
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+
+
+f = "INPUT FILE"
+
+# Take every N-th
+n = 7
+
+# Count the lines or use an upper bound
+num_lines = sum(1 for l in open(f))
+
+# The row indices to skip - make sure 0 is not included to keep the header!
+skip_idx = [x for x in range(1, num_lines) if x % n != 0]
+
+# Read the data
+data = pd.read_csv(f, skiprows=skip_idx)
+
+
+
+#Data Preprocessing - sorting & deduping data
+
+order_sample = data.sort_values('Event Timestamp', ascending = False)
+order_sample_events = order_sample[(order_sample['Event Type']!= 'Suppressed') & (order_sample['Event Type']!= 'Soft Bounce') &\
+            (order_sample['Event Type']!= 'Hard Bounce') & (order_sample['Event Type']!= 'Reply Mail Restriction') &\
+            (order_sample['Event Type']!= 'Reply Other') & (order_sample['Event Type']!= 'Reply Change Address')] 
+dedup_sample = order_sample_events.drop_duplicates(['Email', 'Mailing Id'], keep = 'first')
+
+
+dedup_sample = dedup_sample.drop( columns = ['Conversion Action', 'Conversion Detail', 'Conversion Amount', 'Suppression Reason',\
+'Content Id', 'Campaign Id', 'URL', 'Body Type', 'Click Name',])
+
+dedup_sample['num_event'] = dedup_sample['Event Type'].map({'Open':1, 'Click Through':1, 'Clickstream':1, 'Opt In':1, \
+'Sent': 0,
+'Opt Out':2, 'Reply Mail Block':2})
+
+final_data1 = dedup_sample
+final_data1.dropna(subset=['num_event', 'Mailing Subject'], inplace=True)
+final_data = final_data1.reset_index()
+
+
+#Model building
+
+x = final_data['Mailing Subject']
+y = final_data.num_event
+
+x_train, x_test, y_train, y_test = train_test_split(x,y, random_state=42)
+
+stop = list(stopwords.words('english'))
+stop.extend('TEST'.split())
+
+vect=TfidfVectorizer(ngram_range=(1,4), stop_words = set(stop), lowercase=False)
+
+x_train_dtm = vect.fit_transform(x_train)
+x_test_dtm = vect.transform(x_test)
+
+
+svc = LinearSVC()
+svc.fit(x_train_dtm,y_train)
+y_pred_class = svc.predict(x_test_dtm)
+
+
+#Most positively engaged with subject lines, placed in an DataFrame
+
+unengaged = svc.coef_[0,:]
+pos_engage = svc.coef_[1,:]
+neg_engage = svc.coef_[2, :]
+
+tokens = vect.get_feature_names()
+tokens_df = pd.DataFrame({'token':tokens, 'No_Open': unengaged, 'Pos_engaged': pos_engage, 'Neg_engaged':neg_engage}).set_index('token')
+
+tokens_df.sort_values('Pos_engaged', ascending=False).head(50)
+
+
+#Get Sentiment Score of key words in your subject lines (words must be in the original data set)
+
+print('Analyze key words or phrases of past subject lines:')
+
+key_words = input()
+
+print('Sentiment score:')
+print(sid.polarity_scores(key_words))
+
+print('\nEngagement score:')
+
+print(tokens_df.loc[key_words])
